@@ -29,25 +29,21 @@ function usePost(id: number) {
   };
 }
 
-function usePostComments(id: number) {
+function usePostComments(postId: number) {
   const [postComments, setPostComments] = useState<PostCommentDto[] | null>(
     null
   );
 
   useEffect(() => {
-    apiFetch(`/api/v1/posts/${id}/comments`)
+    apiFetch(`/api/v1/posts/${postId}/comments`)
       .then(setPostComments)
       .catch((error) => {
         alert(`${error.resultCode} : ${error.msg}`);
       });
   }, []);
 
-  const deleteComment = (
-    id: number,
-    commentId: number,
-    onSuccess: (data: any) => void
-  ) => {
-    apiFetch(`/api/v1/posts/${id}/comments/${commentId}`, {
+  const deleteComment = (commentId: number, onSuccess: (data: any) => void) => {
+    apiFetch(`/api/v1/posts/${postId}/comments/${commentId}`, {
       method: "DELETE",
     }).then((data) => {
       if (postComments == null) return;
@@ -58,12 +54,8 @@ function usePostComments(id: number) {
     });
   };
 
-  const writeComment = (
-    id: number,
-    content: string,
-    onSuccess: (data: any) => void
-  ) => {
-    apiFetch(`/api/v1/posts/${id}/comments`, {
+  const writeComment = (content: string, onSuccess: (data: any) => void) => {
+    apiFetch(`/api/v1/posts/${postId}/comments`, {
       method: "POST",
       body: JSON.stringify({
         content,
@@ -77,10 +69,33 @@ function usePostComments(id: number) {
     });
   };
 
+  const modifyComment = (
+    commentId: number,
+    content: string,
+    onSuccess: (data: any) => void
+  ) => {
+    apiFetch(`/api/v1/posts/${postId}/comments/${commentId}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    }).then((data) => {
+      if (postComments == null) return;
+
+      setPostComments(
+        postComments.map((comment) =>
+          comment.id === commentId ? { ...comment, content } : comment
+        )
+      );
+
+      onSuccess(data);
+    });
+  };
+
   return {
+    postId,
     postComments,
     deleteComment,
     writeComment,
+    modifyComment,
   };
 }
 
@@ -117,13 +132,11 @@ function PostInfo({ postState }: { postState: ReturnType<typeof usePost> }) {
 }
 
 function PostCommentWrite({
-  id,
   postCommentsState,
 }: {
-  id: number;
   postCommentsState: ReturnType<typeof usePostComments>;
 }) {
-  const { writeComment } = postCommentsState;
+  const { postId, writeComment } = postCommentsState;
 
   const handleCommentWriteFormSubmit = (
     e: React.FormEvent<HTMLFormElement>
@@ -150,7 +163,7 @@ function PostCommentWrite({
       return;
     }
 
-    writeComment(id, contentTextarea.value, (data) => {
+    writeComment(contentTextarea.value, (data) => {
       alert(data.msg);
       contentTextarea.value = "";
     });
@@ -158,9 +171,12 @@ function PostCommentWrite({
 
   return (
     <>
-      <h2>댓글 작성</h2>
+      <h2>{postId}번글에 대한 댓글 작성</h2>
 
-      <form className="p-2" onSubmit={handleCommentWriteFormSubmit}>
+      <form
+        className="flex gap-2 items-center"
+        onSubmit={handleCommentWriteFormSubmit}
+      >
         <textarea
           className="border p-2 rounded"
           name="content"
@@ -176,52 +192,134 @@ function PostCommentWrite({
   );
 }
 
-function PostCommentWriteAndList({
-  id,
+function PostCommentListItem({
+  comment,
   postCommentsState,
 }: {
-  id: number;
+  comment: PostCommentDto;
   postCommentsState: ReturnType<typeof usePostComments>;
 }) {
-  const { postComments, deleteComment: _deleteComment } = postCommentsState;
+  const [modifyMode, setModifyMode] = useState(false);
+  const { deleteComment: _deleteComment, modifyComment } = postCommentsState;
 
-  if (postComments == null) return <div>로딩중...</div>;
+  const toggleModifyMode = () => {
+    setModifyMode(!modifyMode);
+  };
 
   const deleteComment = (commentId: number) => {
     if (!confirm(`${commentId}번 댓글을 정말로 삭제하시겠습니까?`)) return;
 
-    _deleteComment(id, commentId, (data) => {
+    _deleteComment(commentId, (data) => {
       alert(data.msg);
     });
   };
 
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    const form = e.target as HTMLFormElement;
+
+    const contentTextarea = form.elements.namedItem(
+      "content"
+    ) as HTMLTextAreaElement;
+
+    contentTextarea.value = contentTextarea.value.trim();
+
+    if (contentTextarea.value.length === 0) {
+      alert("댓글 내용을 입력해주세요.");
+      contentTextarea.focus();
+      return;
+    }
+
+    if (contentTextarea.value.length < 2) {
+      alert("댓글 내용을 2자 이상 입력해주세요.");
+      contentTextarea.focus();
+      return;
+    }
+
+    modifyComment(comment.id, contentTextarea.value, (data) => {
+      alert(data.msg);
+      toggleModifyMode();
+    });
+  };
+
+  return (
+    <li className="flex gap-2 items-start">
+      <span>{comment.id} :</span>
+      {!modifyMode && (
+        <span style={{ whiteSpace: "pre-line" }}>{comment.content}</span>
+      )}
+      {modifyMode && (
+        <form className="flex gap-2 items-start" onSubmit={handleSubmit}>
+          <textarea
+            className="border p-2 rounded"
+            name="content"
+            placeholder="댓글 내용"
+            maxLength={100}
+            rows={5}
+            defaultValue={comment.content}
+            autoFocus
+          />
+          <button className="p-2 rounded border" type="submit">
+            저장
+          </button>
+        </form>
+      )}
+      <button className="p-2 rounded border" onClick={toggleModifyMode}>
+        {modifyMode ? "수정취소" : "수정"}
+      </button>
+      <button
+        className="p-2 rounded border"
+        onClick={() => deleteComment(comment.id)}
+      >
+        삭제
+      </button>
+    </li>
+  );
+}
+
+function PostCommentList({
+  postCommentsState,
+}: {
+  postCommentsState: ReturnType<typeof usePostComments>;
+}) {
+  const { postId, postComments } = postCommentsState;
+
+  if (postComments == null) return <div>로딩중...</div>;
+
   return (
     <>
-      <PostCommentWrite id={id} postCommentsState={postCommentsState} />
-
-      <h2>댓글 목록</h2>
-
-      {postComments == null && <div>댓글 로딩중...</div>}
+      <h2>{postId}번 글에 대한 댓글 목록</h2>
 
       {postComments != null && postComments.length == 0 && (
         <div>댓글이 없습니다.</div>
       )}
 
       {postComments != null && postComments.length > 0 && (
-        <ul>
+        <ul className="mt-2 flex flex-col gap-2">
           {postComments.map((comment) => (
-            <li key={comment.id}>
-              {comment.id} : {comment.content}
-              <button
-                className="p-2 rounded border"
-                onClick={() => deleteComment(comment.id)}
-              >
-                삭제
-              </button>
-            </li>
+            <PostCommentListItem
+              key={comment.id}
+              comment={comment}
+              postCommentsState={postCommentsState}
+            />
           ))}
         </ul>
       )}
+    </>
+  );
+}
+
+function PostCommentWriteAndList({
+  postCommentsState,
+}: {
+  postCommentsState: ReturnType<typeof usePostComments>;
+}) {
+  return (
+    <>
+      <PostCommentWrite postCommentsState={postCommentsState} />
+
+      <PostCommentList postCommentsState={postCommentsState} />
     </>
   );
 }
@@ -239,7 +337,7 @@ export default function Page({ params }: { params: Promise<{ id: string }> }) {
 
       <PostInfo postState={postState} />
 
-      <PostCommentWriteAndList id={id} postCommentsState={postCommentsState} />
+      <PostCommentWriteAndList postCommentsState={postCommentsState} />
     </>
   );
 }
